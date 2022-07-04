@@ -216,7 +216,7 @@ class Plugin {
         df.move(currentActionSource, currentActionTarget, 0, 0, currentActionSpaceship);
         console.log('df.move(' + currentActionSource + ', ' + currentActionTarget + ', 0, 0, ' + currentActionArtifact + ')');
       }
-      else if (isArtifactStatusAction(currentActionType) && currentActionArtifact.artifactType != 5) {
+      else if (isArtifactStatusAction(currentActionType) && df.getArtifactWithId(currentActionArtifact).artifactType != 5) {
         if (currentActionArtifactStatus == 1) {
           df.activateArtifact(currentActionSource, currentActionArtifact);
           console.log('df.activateArtifact(' + currentActionSource + ', ' + currentActionArtifact + ')');
@@ -226,8 +226,8 @@ class Plugin {
           console.log('df.deactivateArtifact(' + currentActionSource + ', ' + currentActionArtifact + ')');
         }
       }
-      else if (isArtifactStatusAction(currentActionType) && currentActionArtifact.artifact == 5) {
-        if (actionArtifactStatus == 1) {
+      else if (isArtifactStatusAction(currentActionType) && df.getArtifactWithId(currentActionArtifact).artifactType == 5) {
+        if (currentActionArtifactStatus == 1) {
           df.activateArtifact(currentActionSource, currentActionArtifact, currentActionTarget);
           console.log('df.activateArtifact(' + currentActionSource + ', ' + currentActionArtifact + ', ' + currentActionTarget + ')');
         }
