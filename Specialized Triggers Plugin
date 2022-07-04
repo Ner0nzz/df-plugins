@@ -30,6 +30,7 @@ triggerList format: [Trigger Type, Source Planet, Energy Req, Silver Req, Spaces
 actionList format: [Action Type, Source Planet, Target Planet, Energy, Silver, Spaceship ID, Artifact ID, Artifact Status, Upgrade Type, deleteAfterExecuted?]
 */
 
+//i have no idea what i'm importing lmao
 
 import { PlanetType, SpaceType, PlanetTypeNames 
 } from 'https://cdn.skypack.dev/@darkforest_eth/types'; 
