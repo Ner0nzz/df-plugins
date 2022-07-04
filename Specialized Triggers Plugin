@@ -78,7 +78,7 @@ var addTrigger = (triggerType, actionType, source, target) => {
     const pairElement = document.createElement("span");
     pairElement.append(triggerTypeNames[triggerType] + ' || ' + actionTypeNames[actionType] + ' ');
     pairElement.append(planetLink(source));
-    if (target) {
+    if (target && actionType != 1) {
     pairElement.append(' => ');
     pairElement.append(planetLink(target));
     }
