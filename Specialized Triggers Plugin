@@ -598,16 +598,18 @@ this.triggerScanMasterList[0].splice(executableActions[currentAction], 1);
     const triggerListContainerNewLine = document.createElement("div");
     triggerListContainerNewLine.innerText = "================================================================================";
     
-    //hey looks like you probably want to delete this section. highlight the start of this comment and go all the way down to where it says "FINISH"
     const pluginOverview = document.createElement("div");
     pluginOverview.innerText = "CLARIFYING INFO: A photoid cannon is considered Activated when its activation delay is complete. Sent Energy is the energy that arrives on a target planet, not the amount the origin planet uses.";
-    const pluginOverview2 = document.createElement("p");
-    pluginOverview2.innerText = "To delete this section, go into the code, ctrl+f [overview], and go from there";
     const pluginOverviewBreak = document.createElement("p");
     pluginOverviewBreak.innerText = "================================================================================";
-    pluginOverview.append(pluginOverview2, pluginOverviewBreak);
+    const deleteOverviewButton = document.createElement("button");
+    deleteOverviewButton.innerText = "Delete Info Section";
+    deleteOverviewButton.style.marginLeft = "160px";
+    deleteOverviewButton.addEventListener("click", () => {
+      container.removeChild(pluginOverview);
+    });
+    pluginOverview.append(deleteOverviewButton, pluginOverviewBreak);
     container.appendChild(pluginOverview);
-    //FINISH (that means stop highlighting here and delete the code)
     
     const triggersNewLine = document.createElement("br");
     const actionsNewLine = document.createElement("br");
@@ -771,7 +773,7 @@ this.triggerScanMasterList[0].splice(executableActions[currentAction], 1);
         actionUpgradeTypeInput.disabled = true;
       }
     }
-      
+
       container.appendChild(triggerSourcePlanetContainer);
       container.appendChild(actionSourcePlanetContainer);
       container.appendChild(targetPlanetContainer);
