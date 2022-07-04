@@ -216,6 +216,7 @@ class Plugin {
         df.move(currentActionSource, currentActionTarget, 0, 0, currentActionSpaceship);
         console.log('df.move(' + currentActionSource + ', ' + currentActionTarget + ', 0, 0, ' + currentActionArtifact + ')');
       }
+      //checks if the artifact id in question is a wormhole, which is artifactType "5"
       else if (isArtifactStatusAction(currentActionType) && df.getArtifactWithId(currentActionArtifact).artifactType != 5) {
         if (currentActionArtifactStatus == 1) {
           df.activateArtifact(currentActionSource, currentActionArtifact);
