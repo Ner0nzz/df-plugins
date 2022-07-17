@@ -7,7 +7,7 @@ i've included some comments throughout that'll hopefully be helpful since the co
 with that out of the way, here's some initial helpful information:
 
 viablePlanetList corresponding index info:
-viablePlanetList[i] - "i" indicates information in regards to a certain planet
+viablePlanetList[i] - "i" indicates the index of information in regards to a certain planet
 viablePlanetList[i][0] - the source planet locationId
 viablePlanetList[i][1] - the amount of energy the source planet is predicted to spend given percentEnergyToSend
 viablePlanetList[i][2] - the time it takes for a move from the source planet to arrive at the target planet. i don't think you'll see this used that much though aside from initial checks and display purposes
