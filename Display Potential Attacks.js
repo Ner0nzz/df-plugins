@@ -114,8 +114,6 @@ class Plugin {
         // FILTERRRRRRRRRRRRR also the "isunconfirmedmovetx" part just checks for whether or not a planet has any unconfirmed outgoing moves
         if (isSuitablePlanet(planetInfo.locationId, this.targetPlanet, this.minEnergyToSend, this.maxTimeToSend, this.percentEnergyToSend, this.minPlanetLevel, this.maxPlanetLevel) && planetInfo.transactions?.getTransactions(isUnconfirmedMoveTx).length == 0) {
           this.viablePlanetList.push([planetInfo.locationId, planetInfo.energy * this.percentEnergyToSend / 100, df.getTimeForMove(planetInfo.locationId, this.targetPlanet)]);
-          //console.log("pushing planet with locationId on updateViablePlanetList(): " + this.temporaryViablePlanetInfo[0]);
-          //console.log("first locationid of item in viablePlanetList: " + this.viablePlanetList[0][0]);
         }
       }
       
