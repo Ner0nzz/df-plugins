@@ -51,6 +51,8 @@ const FONT_SIZE = 15;
 const ATTACK_COLOR = "#d9a932";
 // DOUBLE_CLICK_COLOR is the color of selected attack lines
 const DOUBLE_CLICK_COLOR = "#e8663f";
+//ADD_TARGET_HOTKEY is something i think you already know. i think if you don't assign a value or leave it as "" there will be no hotkey so that's an option if you prefer
+const ADD_TARGET_HOTKEY = "g";
 // that's all you need if you came from the tutorial
 
 
@@ -137,7 +139,7 @@ class Plugin {
   lineClickedAndExecute = () => {
     // i malded for a couple hours here trying to figure out why window.addEventListener("click", this.lineClickedAndExecute) didn't call "lineClickedAndExecute()" but called "lineClickedAndExecute = () =>" just fine
     console.log("function lineClickedAndExecute called");
-    if (this.isLinesClickable) {
+    if (this.isLinesClickable && !ui.getHoveringOverPlanet()) {
       let sourcePlanetId = this.selectedLineInfo[0];
       let targetPlanetId = this.selectedLineInfo[1];
       
@@ -201,12 +203,37 @@ class Plugin {
     container.style.width = '260px';
     window.addEventListener("click", this.lineClickedAndExecute);
     window.addEventListener("mousemove", this.getMousePosition);
+    //stole some code from blainebublitz/phated's "custom hotkeys" plugin to make this work. the hotkey here is ADD_TARGET_HOTKEY. i promise to make this code not look like trash in another update lol
+    window.addEventListener("keydown", (e) => {
+    switch (e.key) {
+      case ADD_TARGET_HOTKEY:
+          removeAllChildNodes(targetPlanetContainer);
+      const selectedTargetPlanet = ui.getSelectedPlanet();
+      if (selectedTargetPlanet) {
+          this.targetPlanet = selectedTargetPlanet.locationId;
+          if (setMinEnergyToTargetCapInput.checked == true) {
+            this.minEnergyToSend = df.getPlanetWithId(this.targetPlanet).energyCap * df.getPlanetWithId(this.targetPlanet).defense / 100;
+            minEnergyToSendInput.value = this.minEnergyToSend;
+      }
+          //basically every input the player makes inside this plugin will be calling updateViablePlanetList(). very important function.
+          this.updateViablePlanetList();
+      }
+      
+      else {
+      removeAllChildNodes(targetPlanetContainer);
+      this.targetPlanet = '';
+    }
+      // make the planet either be "none" when nothing is selected, or the planet link.
+      targetPlanetContainer.append("Current target: ", selectedTargetPlanet ? planetLink(selectedTargetPlanet.locationId) : "none");
+        ;
+        break;
+    }});
     
     const targetPlanetContainer = document.createElement("div");
     targetPlanetContainer.innerText = "Current target: none";
     
     const addTargetButton = document.createElement("button");
-    addTargetButton.innerText = "Add target";
+    addTargetButton.innerText = "Add target [" + ADD_TARGET_HOTKEY + "]";
     addTargetButton.style.marginRight = "10px";
     addTargetButton.addEventListener("click", () => {
       removeAllChildNodes(targetPlanetContainer);
@@ -350,11 +377,11 @@ class Plugin {
     tutorialText1.innerText = "Heyoooo Ner0nzz here! Here's a brief intro on how to use this pvp-oriented plugin as well as other info you might find helpful.";
     tutorialText1.style.color = "#fcc203";
     const tutorialText2 = document.createElement("div");
-    tutorialText2.innerText = "What this plugin essentially does is it very conveniently feeds you information on your capabilities in attacking a certain planet. In order to set a specified target, click the Add target button after selecting a planet. You'll notice a lot of potential attack lines as well as estimated arriving energy and time to send appearing on your UI. I'm pretty sure you know what the Clear lines button does.";
+    tutorialText2.innerText = "What this plugin essentially does is it very conveniently feeds you information on your capabilities in attacking a certain planet. In order to set a specified target, click the Add target button  or press [g] after selecting a planet. You'll notice a lot of potential attack lines as well as estimated arriving energy and time to send appearing on your UI. I'm pretty sure you know what the Clear lines button does.";
     tutorialText2.style.fontSize = "10px";
     tutorialText2.style.color = "#fcc203";
     const tutorialText3 = document.createElement("div");
-    tutorialText3.innerText = "The cool thing about this plugin is that if you check the checkbox next to the Lines Clickable setting, you'll notice that you can now interact with said lines. Clicking a selected line again will send the displayed attack. Clicking anywhere else will deselect the line."
+    tutorialText3.innerText = "The cool thing about this plugin is that if you check the checkbox next to the Lines Clickable setting, you'll notice that you can now interact with said lines. Clicking a selected line again will send the displayed attack. Clicking anywhere else or pressing [g] will deselect the line."
     tutorialText3.style.fontSize = "12px";
     tutorialText3.style.color = "#fcc203";
     const tutorialText4 = document.createElement("div");
@@ -362,7 +389,7 @@ class Plugin {
     tutorialText4.style.fontSize = "9px";
     tutorialText4.style.color = "#fcc203";
     const tutorialText5 = document.createElement("div");
-    tutorialText5.innerText = "That's pretty much everything you need to know in order to use this. If you want to mess around with the way the attack lines look, open up the code and ctrl+f the first result of [const viewport] and there will be more info there. GLHF!";
+    tutorialText5.innerText = "That's pretty much everything you need to know in order to use this. If you want to mess around with the way the attack lines look or change hotkeys, open up the code and ctrl+f the first result of [const viewport] and there will be more info there. GLHF!";
     tutorialText5.style.fontSize = "12px";
     tutorialText5.style.color = "#fcc203";
     const tutorialTextList = [tutorialText1, tutorialText2, tutorialText3, tutorialText4, tutorialText5];
@@ -490,6 +517,31 @@ class Plugin {
     }
     window.removeEventListener("click", this.lineClickedAndExecute);
     window.removeEventListener("click", this.getMousePosition);
+    window.removeEventListener("keydown", (e) => {
+    switch (e.key) {
+      case ADD_TARGET_HOTKEY:
+          removeAllChildNodes(targetPlanetContainer);
+      const selectedTargetPlanet = ui.getSelectedPlanet();
+      if (selectedTargetPlanet) {
+          this.targetPlanet = selectedTargetPlanet.locationId;
+          if (setMinEnergyToTargetCapInput.checked == true) {
+            this.minEnergyToSend = df.getPlanetWithId(this.targetPlanet).energyCap * df.getPlanetWithId(this.targetPlanet).defense / 100;
+            minEnergyToSendInput.value = this.minEnergyToSend;
+      }
+          //basically every input the player makes inside this plugin will be calling updateViablePlanetList(). very important function.
+          this.updateViablePlanetList();
+      }
+      
+      else {
+      removeAllChildNodes(targetPlanetContainer);
+      this.targetPlanet = '';
+    }
+      // make the planet either be "none" when nothing is selected, or the planet link.
+      targetPlanetContainer.append("Current target: ", selectedTargetPlanet ? planetLink(selectedTargetPlanet.locationId) : "none");
+        ;
+        break;
+    }});
+    //end of deleted items
   }
 }
 
