@@ -1,36 +1,27 @@
 /*
-heyoo Ner0nzz here. seems like you might be interested in editing/reviewing this code in some way. this is my first work since learning javascript so if you have any bugs reports/suggestions/improvements regarding my code, I'd super appreciate if you could share them with me!
+hey welcome to my second plugin! Ner0nzz here again. if you're here to just check out/modify the code, it'd be really helpful if you could let me know of any bugs/suggestions/improvements for this code.
 
-also special thanks to dark forest legend phated (https://twitter.com/BlaineBublitz) and cristobal (https://github.com/cristobal).
-
-blainebublitz has been super helpful in answering my questions, as he has generally always been to other dark forest coders lol. probably would've spent twice as long malding over how to check for bugs in chrome dev tools if he wasn't around
-
-cristobal is the creator of the Custom Distribute Silver plugin (https://github.com/darkforest-eth/plugins/blob/master/content/productivity/custom-distribute-silver/plugin.js). you may notice that a lot of code in this plugin has been "borrowed" from it. super clean code btw, much better than you'll see here
+i've included some comments throughout that'll hopefully be helpful since the code definitely felt a lot messier this time. maybe that was because there was way more stuff that wasn't just put into functions. if a comment isn't helpful, it was probably because i was malding over draw(ctx) and/or selection areas.
 
 ==================================================================
+with that out of the way, here's some initial helpful information:
 
-anyway here's some info regarding the actual plugin which will probably make it easier to follow along:
+viablePlanetList corresponding index info:
+viablePlanetList[i] - "i" indicates information in regards to a certain planet
+viablePlanetList[i][0] - the source planet locationId
+viablePlanetList[i][1] - the amount of energy the source planet is predicted to spend given percentEnergyToSend
+viablePlanetList[i][2] - the time it takes for a move from the source planet to arrive at the target planet. i don't think you'll see this used that much though aside from initial checks and display purposes
 
-Trigger type corresponding numbers:
-Energy - 0
-Silver - 1
-Spaceship - 2
-Contains Artifact - 3
-Artifact Status - 4
+selectedLineInfo corresponding index info:
+selectedLineInfo[0] - the corresponding source planet's locationId
+selectedLineInfo[1] - the target planet's locationId
+selectedLineInfo[2] - the corresponding amount of energy the source planet is predicted to spend given percentEnergyToSend
 
-Action type corresponding numbers:
-Move - 0
-Upgrade - 1
-Abandon - 2
-Send Spaceship - 3
-Activate/Deactivate Artifact - 4
+LINE_WIDTH_ERROR_FACTOR/MIN_LINE_WIDTH_SIZE - any time you see either of these, that means that the code is dealing with cursor selection areas.
 
-triggerList format: [Trigger Type, Source Planet, Energy Req, Silver Req, Spaceship ID, Artifact ID, Artifact Status]
-
-actionList format: [Action Type, Source Planet, Target Planet, Energy, Silver, Spaceship ID, Artifact ID, Artifact Status, Upgrade Type, deleteAfterExecuted?]
 */
 
-//i have no idea what i'm importing lmao
+//i still have no idea what i'm importing lmao
 
 import { PlanetType, SpaceType, PlanetTypeNames 
 } from 'https://cdn.skypack.dev/@darkforest_eth/types'; 
@@ -42,8 +33,28 @@ import { html, render, useEffect, useState, useLayoutEffect
 
 import { getPlanetName } from 'https://cdn.skypack.dev/@darkforest_eth/procedural';
 
-//in seconds
-const TRIGGER_SCAN_COOLDOWN = 10;
+
+const viewport = ui.getViewport();
+// hey so if you're here because you ctrl+f'ed "const viewport" from the tutorial section, looks like you've arrived at the right place. down below are the constants you're looking for.
+
+// this code automatically calls updateViablePlanetList every so often. the amount of time is determined by UPDATE_INTERVAL, which is in seconds. if you came here from the tutorial, you don't need to worry about that one.
+const UPDATE_INTERVAL = 5;
+// LINE_WIDTH indicates how visually wide a line
+const LINE_WIDTH = 2;
+// LINE_WIDTH_ERROR_FACTOR gets multiplied by LINE_WIDTH to determine how large a line's hitbox is. if LINE_WIDTH_ERROR_FACTOR is greater than 1, then the hitbox will be larger than it looks (which is necessary at low LINE_WIDTH values)
+const LINE_WIDTH_ERROR_FACTOR = 12;
+// MIN_LINE_WIDTH_SIZE determines the minimum hitbox size on the universe scale. you can see it's set to 5 by default. what that means is that a line's hitbox width should always be ~5 units long.
+const MIN_LINE_WIDTH_SIZE = 5;
+// FONT_SIZE is the size of information like arriving energy and time to arrive
+const FONT_SIZE = 15;
+// ATTACK_COLOR is the color of unselected attack lines
+const ATTACK_COLOR = "#d9a932";
+// DOUBLE_CLICK_COLOR is the color of selected attack lines
+const DOUBLE_CLICK_COLOR = "#e8663f";
+//ADD_TARGET_HOTKEY is something i think you already know
+const ADD_TARGET_HOTKEY = "g";
+// that's all you need if you came from the tutorial
+
 
 // removes all the child nodes of an element
 var removeAllChildNodes = (parent) => {
@@ -72,743 +83,425 @@ var planetLink = (locationId, clickable = true) => {
     return planetElement;
 };
 
-//for adding activate triggers for displayment purposes
-var addTrigger = (triggerType, actionType, source, target) => {
-    const triggerTypeNames = ['Energy', 'Silver', 'Spaceship', 'Has Artifact', 'Artifact Status'];
-    const actionTypeNames = ['Move', 'Upgrade', 'Abandon', 'Send Spaceship', 'Artifact Status'];
-    const pairElement = document.createElement("span");
-    pairElement.append(triggerTypeNames[triggerType] + ' || ' + actionTypeNames[actionType] + ' ');
-    pairElement.append(planetLink(source));
-    if (target && actionType != 1) {
-    pairElement.append(' => ');
-    pairElement.append(planetLink(target));
-    }
-    return pairElement;
-}
-
 class Plugin {
-
   constructor() {
-    this.triggerType = 0;
-    this.triggerPlanetSource = '';
-    this.triggerEnergy = 0;
-    this.triggerSilver = 0;
-    this.triggerSpaceship = '';
-    this.triggerArtifact = '';
-    this.triggerArtifactStatus = true;
-    this.actionType = 0;
-    this.actionPlanetSource = '';
-    this.planetTarget = '';
-    this.actionEnergy = 0;
-    this.actionSilver = 0;
-    this.actionSpaceship = '';
-    this.actionArtifact = '';
-    this.actionArtifactStatus = true;
-    this.actionUpgradeType = 0;
-    this.triggerList = [];
-    this.actionList = [];
-    this.triggerScanMasterList = [this.triggerList, this.actionList];
-    this.autoSeconds = TRIGGER_SCAN_COOLDOWN;
-    this.deleteAfterExecuted = true;
-  }
-  
-  
-  renderTriggerList(triggerListContainer) {
-    removeAllChildNodes(triggerListContainer);
+    this.minPlanetLevel = 2;
+    this.maxPlanetLevel = 4;
+    this.minEnergyToSend = 2500;
+    //in seconds
+    this.maxTimeToSend = 300;
+    this.isLinesClickable = false;
+    this.percentEnergyToSend = 75;
+    this.targetPlanet = '';
     
-    for (const item of this.triggerScanMasterList[0]) {
-      const pairElement = addTrigger(item[0], this.triggerScanMasterList[1][this.triggerScanMasterList[0].indexOf(item)][0], item[1], this.triggerScanMasterList[1][this.triggerScanMasterList[0].indexOf(item)][2]);
-      triggerListContainer.append(pairElement);
+    this.viablePlanetList  = [];
+    this.selectedLineInfo = [];
+    this.isLineSelected = false;
+    
+    // i put both these values up here because i remember getting them in lineClickedAndExecute() wasn't reliable
+    this.mouseXPos = 0;
+    this.mouseYPos = 0;
+    
 
-      // deleteButton for remove pair from the list
-      const delButton = document.createElement("button");
-      triggerListContainer.append(delButton);
-      delButton.innerText = "Del";
-      delButton.style.marginLeft = "10px";
-      delButton.addEventListener("click", () => {
-        for (let i=0; i<this.triggerScanMasterList[0].length; i++) {
-          if (this.triggerScanMasterList[0][i][1] == item[1] && this.triggerScanMasterList[1][i][2] == this.triggerScanMasterList[1][this.triggerScanMasterList[0].indexOf(item)][2]) {
-            this.triggerScanMasterList[0].splice(i, 1);
-            this.triggerScanMasterList[1].splice(i, 1);
+  }
+  // updates what planets fit the parameters set when attacking the target planet
+  updateViablePlanetList () {
+    console.log("updating viablePlanetList");
+    this.viablePlanetList.splice(0, this.viablePlanetList.length);
+    if(this.targetPlanet) {
+      // get all the planets
+      for (const planetInfo of df.getMyPlanets()) {
+        // FILTERRRRRRRRRRRRR also the "isunconfirmedmovetx" part just checks for whether or not a planet has any unconfirmed outgoing moves
+        if (isSuitablePlanet(planetInfo.locationId, this.targetPlanet, this.minEnergyToSend, this.maxTimeToSend, this.percentEnergyToSend, this.minPlanetLevel, this.maxPlanetLevel) && planetInfo.transactions?.getTransactions(isUnconfirmedMoveTx).length == 0) {
+          this.viablePlanetList.push([planetInfo.locationId, planetInfo.energy * this.percentEnergyToSend / 100, df.getTimeForMove(planetInfo.locationId, this.targetPlanet)]);
+          //console.log("pushing planet with locationId on updateViablePlanetList(): " + this.temporaryViablePlanetInfo[0]);
+          //console.log("first locationid of item in viablePlanetList: " + this.viablePlanetList[0][0]);
+        }
+      }
+      
+      // if a line that was selected contained a source planet that didn't pass the test, the line gets unselected so it doesn't mess with the draw(ctx) function
+      if (this.isLinesClickable == true && this.selectedLineInfo) {
+        let confirmedViable = false;
+        for (const viablePlanetInfo of this.viablePlanetList) {
+          if (viablePlanetInfo[0] == this.selectedLineInfo[0]) {
+            confirmedViable = true;
             break;
           }
+        }
+        if (!confirmedViable) {
+          this.isLineSelected = false;
+        }
+      }
+    }
+  }
+  
+  // whenever the player clicks, this function gets called. it basically tries to determine if the player clicked a selected/unselected attack line
+  lineClickedAndExecute = () => {
+    // i malded for a couple hours here trying to figure out why window.addEventListener("click", this.lineClickedAndExecute) didn't call "lineClickedAndExecute()" but called "lineClickedAndExecute = () =>" just fine
+    console.log("function lineClickedAndExecute called");
+    if (this.isLinesClickable) {
+      let sourcePlanetId = this.selectedLineInfo[0];
+      let targetPlanetId = this.selectedLineInfo[1];
+      
+      // checks if a line has already been selected
+      if (this.isLineSelected) {
+        // next two if statements check if that selected line is what the player just clicked
+        if (isBetweenXCoordinates(sourcePlanetId, targetPlanetId, this.mouseXPos) && isBetweenYCoordinates(sourcePlanetId, targetPlanetId, this.mouseYPos)) {
+          if (isOnLine(sourcePlanetId, targetPlanetId, this.mouseXPos, this.mouseYPos)) {
+            this.isLineSelected = false;
+            this.updateViablePlanetList();
+            df.move(sourcePlanetId, targetPlanetId, Math.ceil(this.selectedLineInfo[2]), 0);
+            this.selectedLineInfo.splice(0, this.selectedLineInfo.length);
+          }
           else {
-          console.log("trigger unsuccessfully deleted: " + this.triggerScanMasterList[0][i][1] + " != " + item[1] + " or " + this.triggerScanMasterList[1][i][2] + " != " + this.triggerScanMasterList[1][this.triggerScanMasterList[0].indexOf(item)][2]);
+          this.isLineSelected = false;
+          this.selectedLineInfo.splice(0, this.selectedLineInfo.length);
+          this.updateViablePlanetList();
           }
         }
-        this.renderTriggerList(triggerListContainer);
-      });
-
-      // new line
-      const newLine = document.createElement("br");
-      triggerListContainer.append(newLine);
-    }
-  }
-  //loop through triggerList for fulfilled conditions and execute corresponding actions in actionList
-  triggerCheckAndExecute() {
-    console.log("looping through list");
-    let conditionFulfilled = false;
-    let executableActions = [];
-    let currentTrigger = 0;
-    for (const item of this.triggerScanMasterList[0]) {
-    
-    //setting names that make more sense for trigger attributes
-      let currentTriggerType = item[0];
-      let currentTriggerSource = item[1];
-      let currentTriggerEnergy = item[2];
-      let currentTriggerSilver = item[3];
-      let currentTriggerSpaceship = item[4];
-      let currentTriggerArtifact = item[5];
-      let currentTriggerArtifactStatus = item[6];
-      
-      //figuring out what kind of trigger each trigger is and then  figuring out if thr trigger condition is fulfilled, then storing that information for the next action section
-    if (isEnergyTrigger(currentTriggerType)) {
-      conditionFulfilled = isEnergyConditionTrue(currentTriggerSource, currentTriggerEnergy);
-    }
-    else if (isSilverTrigger(currentTriggerType)) {
-      conditionFulfilled = isSilverConditionTrue(currentTriggerSource, currentTriggerSilver);
-    }
-    else if (isSpaceshipTrigger(currentTriggerType)) {
-      conditionFulfilled = isSpaceshipConditionTrue(currentTriggerSource, currentTriggerSpaceship);
-    }
-    else if (isContainsArtifactTrigger(currentTriggerType)) {
-      conditionFulfilled = isContainsArtifactConditionTrue(currentTriggerSource, currentTriggerArtifact);
-    }
-    else if (isArtifactStatusTrigger(currentTriggerType)) {
-      conditionFulfilled = isArtifactStatusConditionTrue(currentTriggerSource, currentTriggerArtifact, currentTriggerArtifactStatus);
-    }
-    else {
-      console.log("you kinda suck at assigning trigger types");
-    }
-    if (conditionFulfilled) {
-      executableActions.push(currentTrigger);
-    }
-    currentTrigger++;
-  }
-    for (let currentAction = 0; currentAction < executableActions.length; currentAction++) {
-    
-    //setting names that make more sense for action attributes
-      let currentActionType = this.triggerScanMasterList[1][executableActions[currentAction]][0];
-      let currentActionSource = this.triggerScanMasterList[1][executableActions[currentAction]][1];
-      let currentActionTarget = this.triggerScanMasterList[1][executableActions[currentAction]][2];
-      let currentActionEnergy = this.triggerScanMasterList[1][executableActions[currentAction]][3];
-      let currentActionSilver = this.triggerScanMasterList[1][executableActions[currentAction]][4];
-      let currentActionSpaceship = this.triggerScanMasterList[1][executableActions[currentAction]][5];
-      let currentActionArtifact = this.triggerScanMasterList[1][executableActions[currentAction]][6];
-      let currentActionArtifactStatus = this.triggerScanMasterList[1][executableActions[currentAction]][7];
-      let currentActionUpgrade = this.triggerScanMasterList[1][executableActions[currentAction]][8];
-      let deletable = this.triggerScanMasterList[1][executableActions[currentAction]][9];
-      
-      //figuring out what type of action each action is and then executing accordingly
-      if (isMoveAction(currentActionType)) {
-        df.move(currentActionSource, currentActionTarget, currentActionEnergy, currentActionSilver, currentActionArtifact);
-        console.log('df.move(' + currentActionSource + ', ' + currentActionTarget + ', ' + currentActionEnergy + ', ' + currentActionSilver + ', ' + currentActionArtifact +')');
-      }
-      else if (isUpgradeAction(currentActionType)) {
-      df.upgrade(currentActionSource, currentActionUpgrade);
-      console.log('df.upgrade(' + currentActionSource + ', ' + currentActionUpgrade + ')');
-      }
-      else if (isAbandonAction(currentActionType)) {
-        df.move(currentActionSource, currentActionTarget, 0, 0, currentActionArtifact, true);
-        console.log('df.move(' + currentActionSource + ', ' + currentActionTarget + ', 0, 0, ' + currentActionArtifact + ', true)');
-      }
-      else if (isSpaceshipAction(currentActionType)) {
-        df.move(currentActionSource, currentActionTarget, 0, 0, currentActionSpaceship);
-        console.log('df.move(' + currentActionSource + ', ' + currentActionTarget + ', 0, 0, ' + currentActionArtifact + ')');
-      }
-      //checks if the artifact id in question is a wormhole, which is artifactType "5"
-      else if (isArtifactStatusAction(currentActionType) && df.getArtifactWithId(currentActionArtifact).artifactType != 5) {
-        if (currentActionArtifactStatus == 1) {
-          df.activateArtifact(currentActionSource, currentActionArtifact);
-          console.log('df.activateArtifact(' + currentActionSource + ', ' + currentActionArtifact + ')');
-        }
         else {
-          df.deactivateArtifact(currentActionSource, currentActionArtifact);
-          console.log('df.deactivateArtifact(' + currentActionSource + ', ' + currentActionArtifact + ')');
+          this.isLineSelected = false;
+          this.selectedLineInfo.splice(0, this.selectedLineInfo.length);
+          this.updateViablePlanetList();
+          }
+      }
+      
+      // so the reason why you see an "if" here rather than an "else if" is because the player might want to select a different line while another one is already selected. clicking one more time than needed might become a bit annoying.
+      // if a line is not previously selected, then loop through all potential line info and see if the player did select one
+      if (!this.isLineSelected) {
+      for (const viablePlanetInfo of this.viablePlanetList) {
+      // you'll sometimes see some debug stuff i did here. i'll leave them in in case they're helpful while modifying the code.
+      /*let cursorIsBetweenSourceAndTarget = isBetweenXCoordinates(viablePlanetInfo[0], this.targetPlanet, this.mouseXPos) && isBetweenYCoordinates(viablePlanetInfo[0], this.targetPlanet, this.mouseYPos);
+      console.log("The cursor is between an area made by a source and target planet: " + cursorIsBetweenSourceAndTarget);*/
+        if (isBetweenXCoordinates(viablePlanetInfo[0], this.targetPlanet, this.mouseXPos) && isBetweenYCoordinates(viablePlanetInfo[0], this.targetPlanet, this.mouseYPos)) {
+        //console.log("The cursor is on an attack line: " + isOnLine(viablePlanetInfo[0], this.targetPlanet, this.mouseXPos, this.mouseYPos));
+          if (isOnLine(viablePlanetInfo[0], this.targetPlanet, this.mouseXPos, this.mouseYPos)) {
+            this.selectedLineInfo.splice(0, this.selectedLineInfo.length);
+            this.selectedLineInfo.push(viablePlanetInfo[0], this.targetPlanet, viablePlanetInfo[1]);
+            this.isLineSelected = true;
+            }
+          }  
         }
       }
-      else if (isArtifactStatusAction(currentActionType) && df.getArtifactWithId(currentActionArtifact).artifactType == 5) {
-        if (currentActionArtifactStatus == 1) {
-          df.activateArtifact(currentActionSource, currentActionArtifact, currentActionTarget);
-          console.log('df.activateArtifact(' + currentActionSource + ', ' + currentActionArtifact + ', ' + currentActionTarget + ')');
-        }
-        else {
-          df.deactivateArtifact(currentActionSource, currentActionArtifact);
-          console.log('df.deactivateArtifact(' + currentActionSource + ', ' + currentActionArtifact + ')');
-        }
-      }
-      else {
-        console.log("you kinda suck at assigning action conditions");
-      }
-      if (deletable) {
-this.triggerScanMasterList[0].splice(executableActions[currentAction], 1);
-        this.triggerScanMasterList[1].splice(executableActions[currentAction], 1);
-      }
-    else {
-      if (deletable) {
-      console.log('action was deletable but looks like a separate problem is present');
-      }
-      else {
-      console.log('action was not deletable');
-      }
-      }
-    } 
+    }
   }
-
+  
+  //this gets called every time the player moves their cursor
+  getMousePosition = () => {
+    if(ui.getHoveringOverCoords()) {
+      this.mouseXPos = ui.getHoveringOverCoords().x;
+      this.mouseYPos = ui.getHoveringOverCoords().y;
+      }
+  }
+  
   /**
    * Called when plugin is launched with the "run" button.
    */
   render(container) {
     container.parentElement.style.minHeight = 'unset';
     container.style.minHeight = 'unset';
-    container.style.width = '645px';
-    
-    // addButton for append pair to the list
-    const addButton = document.createElement("button");
-    addButton.innerText = "Add Trigger to List";
-    addButton.style.marginRight = "10px";
-    addButton.addEventListener("click", () => {
-      /*if (this.actionType == 4 && this.actionArtifact.artifactType != 5) {
-        this.planetTarget = 'None';
-      }*/
-      this.triggerList = [this.triggerType, this.triggerPlanetSource, this.triggerEnergy, this.triggerSilver, this.triggerSpaceship, this.triggerArtifact, this.triggerArtifactStatus];
-      if (this.actionType == 1 || this.actionType == 4) {
-        this.actionList = [this.actionType, this.actionPlanetSource, this.planetTarget, this.actionEnergy, this.actionSilver, this.actionSpaceship, this.actionArtifact, this.actionArtifactStatus, this.actionUpgradeType, this.deleteAfterExecuted];
+    container.style.width = '260px';
+    window.addEventListener("click", this.lineClickedAndExecute);
+    window.addEventListener("mousemove", this.getMousePosition);
+    //stole some code from blainebublitz/phated's "custom hotkeys" plugin to make this work. the hotkey here is ADD_TARGET_HOTKEY. i promise to make this code not look like trash in another update lol
+    window.addEventListener("keydown", (e) => {
+    switch (e.key) {
+      case ADD_TARGET_HOTKEY:
+          removeAllChildNodes(targetPlanetContainer);
+      const selectedTargetPlanet = ui.getSelectedPlanet();
+      if (selectedTargetPlanet) {
+          this.targetPlanet = selectedTargetPlanet.locationId;
+          if (setMinEnergyToTargetCapInput.checked == true) {
+            this.minEnergyToSend = df.getPlanetWithId(this.targetPlanet).energyCap * df.getPlanetWithId(this.targetPlanet).defense / 100;
+            minEnergyToSendInput.value = this.minEnergyToSend;
       }
-      else {
-      this.actionList = [this.actionType, this.actionPlanetSource, this.planetTarget, Math.ceil(df.getEnergyNeededForMove(this.actionPlanetSource, this.planetTarget, this.actionEnergy)), this.actionSilver, this.actionSpaceship, this.actionArtifact, this.actionArtifactStatus, this.actionUpgradeType, this.deleteAfterExecuted];
-      }
-      this.triggerScanMasterList[0].splice(0, 0, this.triggerList);
-      this.triggerScanMasterList[1].splice(0, 0, this.actionList);
-      this.renderTriggerList(triggerListContainer);
-    });
-    
-    //trigger type container
-    //also ctrl+f "triggerTypeContainer.onchange" to find how changing the select element values influences the actual trigger values because order mattered when programming this :/
-    const triggerTypeContainer = document.createElement("SELECT");
-    triggerTypeContainer.style.marginRight = "10px";
-    triggerTypeContainer.style.background = 'rgb(8,8,8)';
-    
-    //trigger options and attribute setting
-    const triggerEnergyOption = document.createElement("option");
-    const triggerSilverOption = document.createElement("option");
-    const triggerSpaceshipOption = document.createElement("option");
-    const triggerContainsArtifactOption = document.createElement("option");
-    const triggerArtifactStatusOption = document.createElement("option");
-    
-    triggerEnergyOption.innerHTML = "Energy";
-    triggerSilverOption.innerHTML = "Silver";
-    triggerSpaceshipOption.innerHTML = "Contains Spaceship";
-    triggerContainsArtifactOption.innerHTML = "Contains Artifact";
-    triggerArtifactStatusOption.innerHTML = "Artifact Status";
-    
-    triggerEnergyOption.setAttribute("type", "number");
-    triggerSilverOption.setAttribute("type", "number");
-    triggerSpaceshipOption.setAttribute("type", "number");
-    triggerContainsArtifactOption.setAttribute("type", "number");
-    triggerArtifactStatusOption.setAttribute("type", "number");
-    
-    triggerEnergyOption.setAttribute("value", 0);
-    triggerSilverOption.setAttribute("value", 1);
-    triggerSpaceshipOption.setAttribute("value", 2);
-    triggerContainsArtifactOption.setAttribute("value", 3);
-    triggerArtifactStatusOption.setAttribute("value", 4);
-    
-    triggerEnergyOption.setAttribute("id", "triggerEnergy");
-    triggerSilverOption.setAttribute("id", "triggerSilver");
-    triggerSpaceshipOption.setAttribute("id", "triggerSpaceship");
-    triggerContainsArtifactOption.setAttribute("id", "triggerContainsArtifact");
-    triggerArtifactStatusOption.setAttribute("id", "triggerArtifactStatus");
-    
-    
-    triggerTypeContainer.append(triggerEnergyOption, triggerSilverOption, triggerSpaceshipOption, triggerContainsArtifactOption, triggerArtifactStatusOption);
-    
-    //source display
-    const triggerSourcePlanetContainer = document.createElement("div");
-    triggerSourcePlanetContainer.innerText = "Current trigger source: none";
-    
-    const actionSourcePlanetContainer = document.createElement("div");
-    actionSourcePlanetContainer.innerText = "Current action source: none";
-    
-    // button for adding a trigger source
-    const addTriggerPlanetSourceButton = document.createElement("button");
-    addTriggerPlanetSourceButton.innerText = "Add trigger source";
-    addTriggerPlanetSourceButton.style.marginRight = "10px";
-    addTriggerPlanetSourceButton.addEventListener("click", () => {
-      removeAllChildNodes(triggerSourcePlanetContainer);
-      const sourceTriggerPlanet = ui.getSelectedPlanet();
-      if (sourceTriggerPlanet) {
-          this.triggerPlanetSource = sourceTriggerPlanet.locationId;
+          //basically every input the player makes inside this plugin will be calling updateViablePlanetList(). very important function.
+          this.updateViablePlanetList();
       }
       // make the planet either be "none" when nothing is selected, or the planet link.
-      triggerSourcePlanetContainer.append("Current trigger source: ", sourceTriggerPlanet ? planetLink(sourceTriggerPlanet.locationId) : "none");
-    });
+      targetPlanetContainer.append("Current target: ", selectedTargetPlanet ? planetLink(selectedTargetPlanet.locationId) : "none");
+        ;
+        break;
+    }});
     
-    //energy trigger input
-    const triggerEnergyInput = document.createElement("input");
-    triggerEnergyInput.style.marginRight = "10px";
-    triggerEnergyInput.style.background = 'rgb(8,8,8)';
-    triggerEnergyInput.setAttribute("type", "number");
-    triggerEnergyInput.onchange = () => {
-      this.triggerEnergy = triggerEnergyInput.value;
-    }
-    
-    //silver trigger input
-    const triggerSilverInput = document.createElement("input");
-    triggerSilverInput.style.marginRight = "10px";
-    triggerSilverInput.style.background = 'rgb(8,8,8)';
-    triggerSilverInput.setAttribute("type", "number");
-    triggerSilverInput.onchange = () => {
-      this.triggerSilver = triggerSilverInput.value;
-    }
-    
-    //contains spaceship trigger input
-    const triggerSpaceshipInput = document.createElement("input");
-    triggerSpaceshipInput.style.marginRight = "10px";
-    triggerSpaceshipInput.style.background = 'rgb(8,8,8)';
-    triggerSpaceshipInput.setAttribute("type", "text");
-    triggerSpaceshipInput.onchange = () => {
-      this.triggerSpaceship = triggerSpaceshipInput.value;
-    }
-    
-    //contains artifact trigger input
-    const triggerArtifactInput = document.createElement("input");
-    triggerArtifactInput.style.marginRight = "10px";
-    triggerArtifactInput.style.background = 'rgb(8,8,8)';
-    triggerArtifactInput.setAttribute("type", "text");
-    triggerArtifactInput.onchange = () => {
-      this.triggerArtifact = triggerArtifactInput.value;
-    }
-    
-    //artifact status trigger input
-    const triggerArtifactStatusInput = document.createElement("SELECT");
-    triggerArtifactStatusInput.style.marginRight = "10px";
-    triggerArtifactStatusInput.style.background = 'rgb(8,8,8)';
-    const triggerArtifactStatusTrue = document.createElement("option");
-    const triggerArtifactStatusFalse = document.createElement("option");
-    triggerArtifactStatusTrue.innerHTML = "Activated";
-    triggerArtifactStatusFalse.innerHTML = "Deactivated";
-    triggerArtifactStatusTrue.setAttribute("type", "boolean");
-    triggerArtifactStatusFalse.setAttribute("type", "boolean");
-    triggerArtifactStatusTrue.setAttribute("value", true);
-    triggerArtifactStatusFalse.setAttribute("value", false);
-    triggerArtifactStatusInput.append(triggerArtifactStatusTrue, triggerArtifactStatusFalse);
-    triggerArtifactStatusInput.onchange = () => {
-      this.triggerArtifactStatus = triggerArtifactStatusInput.value;
-    }
-    
-    //action type container
-    //same thing with the triggerTypeContainer, ctrl+f "actionTypeContainer.onchange" to find how changing the select element values influences the actual trigger values
-    const actionTypeContainer = document.createElement("SELECT");
-    actionTypeContainer.style.marginRight = "10px";
-    actionTypeContainer.style.background = 'rgb(8,8,8)';
-    
-    //action options and attribute setting
-    const actionMoveOption = document.createElement("option");
-    const actionUpgradeOption = document.createElement("option");
-    const actionAbandonOption = document.createElement("option");
-    const actionSpaceshipOption = document.createElement("option");
-    const actionArtifactStatusOption = document.createElement("option");
-    
-    actionMoveOption.innerHTML = "Move";
-    actionUpgradeOption.innerHTML = "Upgrade";
-    actionAbandonOption.innerHTML = "Abandon";
-    actionSpaceshipOption.innerHTML = "Send Spaceship";
-    actionArtifactStatusOption.innerHTML = "Activate/Deactivate Artifact";
-    
-    actionMoveOption.setAttribute("type", "number");
-    actionUpgradeOption.setAttribute("type", "number");
-    actionAbandonOption.setAttribute("type", "number");
-    actionSpaceshipOption.setAttribute("type", "number");
-    actionArtifactStatusOption.setAttribute("type", "number");
-    
-    actionMoveOption.setAttribute("value", 0);
-    actionUpgradeOption.setAttribute("value", 1);
-    actionAbandonOption.setAttribute("value", 2);
-    actionSpaceshipOption.setAttribute("value", 3);
-    actionArtifactStatusOption.setAttribute("value", 4);
-    
-    
-    
-    /*actionEnergyOption.setAttribute("id", "actionEnergy");
-    actionSilverOption.setAttribute("id", "actionSilver");
-    actionSpaceshipOption.setAttribute("id", "actionSpaceship");
-    actionContainsArtifactOption.setAttribute("id", "actionContainsArtifact");
-    actionArtifactStatusOption.setAttribute("id", "actionArtifactStatus");*/
-    
-    
-    actionTypeContainer.append(actionMoveOption, actionUpgradeOption, actionAbandonOption, actionSpaceshipOption, actionArtifactStatusOption);
-    
-    //button for adding an action source
-    const addActionPlanetSourceButton = document.createElement("button");
-    addActionPlanetSourceButton.innerText = "Add action source";
-    addActionPlanetSourceButton.style.marginRight = "10px";
-    addActionPlanetSourceButton.addEventListener("click", () => {
-      removeAllChildNodes(actionSourcePlanetContainer);
-      const sourceActionPlanet = ui.getSelectedPlanet();
-      if (sourceActionPlanet) {
-          this.actionPlanetSource = sourceActionPlanet.locationId;
-      }
-      // make the planet either be "none" when nothing is selected, or the planet link.
-      actionSourcePlanetContainer.append("Current action source: ", sourceActionPlanet ? planetLink(sourceActionPlanet.locationId) : "none");
-    });
-    
-    // target display
     const targetPlanetContainer = document.createElement("div");
     targetPlanetContainer.innerText = "Current target: none";
-    // button for adding an target
-    const addPlanetTargetButton = document.createElement("button");
-    addPlanetTargetButton.innerText = "Add target";
-    addPlanetTargetButton.style.marginRight = "10px";
-    addPlanetTargetButton.addEventListener("click", () => {
+    
+    const addTargetButton = document.createElement("button");
+    addTargetButton.innerText = "Add target [g]";
+    addTargetButton.style.marginRight = "10px";
+    addTargetButton.addEventListener("click", () => {
       removeAllChildNodes(targetPlanetContainer);
-      const targetedPlanet = ui.getSelectedPlanet();
-      if (targetedPlanet) {
-          this.planetTarget = targetedPlanet.locationId;
+      const selectedTargetPlanet = ui.getSelectedPlanet();
+      if (selectedTargetPlanet) {
+          this.targetPlanet = selectedTargetPlanet.locationId;
+          if (setMinEnergyToTargetCapInput.checked == true) {
+            this.minEnergyToSend = df.getPlanetWithId(this.targetPlanet).energyCap * df.getPlanetWithId(this.targetPlanet).defense / 100;
+            minEnergyToSendInput.value = this.minEnergyToSend;
+      }
+          //basically every input the player makes inside this plugin will be calling updateViablePlanetList(). very important function.
+          this.updateViablePlanetList();
       }
       // make the planet either be "none" when nothing is selected, or the planet link.
-      targetPlanetContainer.append("Current target: ", targetedPlanet ? planetLink(targetedPlanet.locationId) : "none");
+      targetPlanetContainer.append("Current target: ", selectedTargetPlanet ? planetLink(selectedTargetPlanet.locationId) : "none");
     });
     
-    //energy action input
-    const actionEnergyInput = document.createElement("input");
-    actionEnergyInput.style.marginRight = "10px";
-    actionEnergyInput.style.background = 'rgb(8,8,8)';
-    actionEnergyInput.setAttribute("type", "number");
-    actionEnergyInput.onchange = () => {
-      this.actionEnergy = actionEnergyInput.value;
-    }
-    
-    //silver action input
-    const actionSilverInput = document.createElement("input");
-    actionSilverInput.style.marginRight = "10px";
-    actionSilverInput.style.background = 'rgb(8,8,8)';
-    actionSilverInput.setAttribute("type", "number");
-    actionSilverInput.onchange = () => {
-      this.actionSilver = actionSilverInput.value;
-    }
-    
-    //contains spaceship action input
-    const actionSpaceshipInput = document.createElement("input");
-    actionSpaceshipInput.style.marginRight = "10px";
-    actionSpaceshipInput.style.background = 'rgb(8,8,8)';
-    actionSpaceshipInput.setAttribute("type", "text");
-    actionSpaceshipInput.onchange = () => {
-      this.actionSpaceship = actionSpaceshipInput.value;
-    }
-    
-    //contains artifact action input
-    const actionArtifactInput = document.createElement("input");
-    actionArtifactInput.style.marginRight = "10px";
-    actionArtifactInput.style.background = 'rgb(8,8,8)';
-    actionArtifactInput.setAttribute("type", "text");
-    actionArtifactInput.onchange = () => {
-      this.actionArtifact = actionArtifactInput.value;
-    }
-    
-    //artifact status action input
-    const actionArtifactStatusInput = document.createElement("SELECT");
-    actionArtifactStatusInput.style.marginRight = "10px";
-    actionArtifactStatusInput.style.background = 'rgb(8,8,8)';
-    const actionArtifactStatusTrue = document.createElement("option");
-    const actionArtifactStatusFalse = document.createElement("option");
-    actionArtifactStatusTrue.innerHTML = "Activate";
-    actionArtifactStatusFalse.innerHTML = "Deactivate";
-    actionArtifactStatusTrue.setAttribute("type", "boolean");
-    actionArtifactStatusFalse.setAttribute("type", "boolean");
-    actionArtifactStatusTrue.setAttribute("value", true);
-    actionArtifactStatusFalse.setAttribute("value", false);
-    actionArtifactStatusInput.append(actionArtifactStatusTrue, actionArtifactStatusFalse);
-    actionArtifactStatusInput.onchange = () => {
-      this.actionArtifactStatus = actionArtifactStatusInput.value;
-    }
-    
-    //upgrade type action input
-    const actionUpgradeTypeInput = document.createElement("SELECT");
-    actionUpgradeTypeInput.style.marginRight = "10px";
-    actionUpgradeTypeInput.style.background = 'rgb(8,8,8)';
-    const defenseTypeOption = document.createElement("option");
-    const rangeTypeOption = document.createElement("option");
-    const speedTypeOption = document.createElement("option");
-    defenseTypeOption.innerHTML = "Defense";
-    rangeTypeOption.innerHTML = "Range";
-    speedTypeOption.innerHTML = "Speed";
-    defenseTypeOption.setAttribute("type", "number");
-    rangeTypeOption.setAttribute("type", "number");
-    speedTypeOption.setAttribute("type", "number");
-    defenseTypeOption.setAttribute("value", 0);
-    rangeTypeOption.setAttribute("value", 1);
-    speedTypeOption.setAttribute("value", 2);
-    actionUpgradeTypeInput.append(defenseTypeOption, rangeTypeOption, speedTypeOption);
-    actionUpgradeTypeInput.onchange = () => {
-      this.actionUpgradeType = actionUpgradeTypeInput.value;
-    }
-    
-    // button to loop through all triggers
-    let globalButton = document.createElement('button');
-    globalButton.style.width = '100%';
-    globalButton.style.marginBottom = '10px';
-    globalButton.innerHTML = 'Check Triggers'
-    globalButton.addEventListener("click", () => {
-      this.triggerCheckAndExecute();
+    const clearTargetButton = document.createElement("button");
+    clearTargetButton.innerText = "Clear lines";
+    clearTargetButton.style.marginRight = "10px";
+    clearTargetButton.addEventListener("click", () => {
+      removeAllChildNodes(targetPlanetContainer);
+      targetPlanetContainer.append("Current target: none");
+      this.targetPlanet = '';
     });
     
-    // stuff managing intervals between auto loops
-    let autoSecondsStepper = document.createElement('input');
-    autoSecondsStepper.type = 'range';
-    autoSecondsStepper.min = '1';
-    autoSecondsStepper.max = '60';
-    autoSecondsStepper.step = '1';
-    autoSecondsStepper.value = `${this.autoSeconds}`;
-    autoSecondsStepper.style.width = '100%';
-    autoSecondsStepper.style.height = '24px';
-
-    let autoSecondsInfo = document.createElement('span');
-    autoSecondsInfo.innerText = `Check Triggers Every ${autoSecondsStepper.value} seconds`;
-    autoSecondsInfo.style.display = 'block';
-    autoSecondsInfo.style.marginTop = '10px';
-
-    autoSecondsStepper.onchange = (evt) => {
-      try {
-        this.autoSeconds = parseInt(evt.target.value, 10);
-        autoSecondsInfo.innerText = `Check Triggers Every ${autoSecondsStepper.value} seconds`;
-      } catch (e) {
-        console.error('could not parse auto seconds', e);
-      }
+    //zzzzzzzz i should probably just create a function that makes element input settings for me rather than copypasting the same thing everywhere...
+    const minPlanetLevelInput = document.createElement("input");
+    minPlanetLevelInput.style.textAlign = "right";
+    minPlanetLevelInput.style.marginLeft = "74px";
+    minPlanetLevelInput.style.background = 'rgb(8,8,8)';
+    minPlanetLevelInput.style.width = "50px";
+    minPlanetLevelInput.setAttribute("type", "number");
+    minPlanetLevelInput.value = this.minPlanetLevel;
+    minPlanetLevelInput.addEventListener('focus', () => {minPlanetLevelInput.select()});
+    minPlanetLevelInput.onchange = () => {
+      this.minPlanetLevel = minPlanetLevelInput.value;
+      this.updateViablePlanetList();
     }
-    
-    this.timerId = setInterval(() => {
-          setTimeout(this.triggerCheckAndExecute(), 0);
-          this.renderTriggerList(triggerListContainer);
-        }, 1000 * this.autoSeconds)
-    
-    const triggerListContainerLabel = document.createElement("div");
-    triggerListContainerLabel.innerText = "Trigger list:";
-    
-    const triggerListContainer = document.createElement("div");
-      triggerListContainer.style.marginTop = '10px';
-      
-      let deleteAfterExecutedButton = document.createElement('input');
-    deleteAfterExecutedButton.type = "checkbox";
-    deleteAfterExecutedButton.style.marginLeft = "410px";
-    deleteAfterExecutedButton.checked = true;
-    deleteAfterExecutedButton.onchange = () => {
-      this.deleteAfterExecuted = deleteAfterExecutedButton.checked.value;
-    }
-    
-    const triggerListContainerNewLine = document.createElement("div");
-    triggerListContainerNewLine.innerText = "================================================================================";
-    
-    const pluginOverview = document.createElement("div");
-    pluginOverview.innerText = "CLARIFYING INFO: A photoid cannon is considered Activated when its activation delay is complete. Sent Energy is the energy that arrives on a target planet, not the amount the origin planet uses.";
-    const pluginOverviewBreak = document.createElement("p");
-    pluginOverviewBreak.innerText = "================================================================================";
-    const deleteOverviewButton = document.createElement("button");
-    deleteOverviewButton.innerText = "Delete Info Section";
-    deleteOverviewButton.style.marginLeft = "160px";
-    deleteOverviewButton.addEventListener("click", () => {
-      container.removeChild(pluginOverview);
-    });
-    pluginOverview.append(deleteOverviewButton, pluginOverviewBreak);
-    container.appendChild(pluginOverview);
-    
-    const triggersNewLine = document.createElement("br");
-    const actionsNewLine = document.createElement("br");
-    const globalButtonNewLine = document.createElement("br");
-    
-    const triggersDescription1 = document.createElement("div");
-    const triggerTypeDescription = document.createElement("text");
-    triggerTypeDescription.innerText = "Trigger Type:";
-    const triggerEnergyDescription = document.createElement("text");
-    triggerEnergyDescription.innerText = "Energy Requirement:";
-    triggerEnergyDescription.style.marginLeft = "70px";
-    const triggerSilverDescription = document.createElement("text");
-    triggerSilverDescription.innerText = "Silver Requirement:";
-    triggerSilverDescription.style.marginLeft = "25px";
-    triggersDescription1.append(triggerTypeDescription, triggerEnergyDescription, triggerSilverDescription);
-    
-    const triggersDescription2 = document.createElement("div");
-    const triggerSpaceshipDescription = document.createElement("text");
-    triggerSpaceshipDescription.innerText = "Spaceship ID:";
-    const triggerArtifactDescription = document.createElement("text");
-    triggerArtifactDescription.innerText = "Artifact ID:";
-    triggerArtifactDescription.style.marginLeft = "70px";
-    const triggerArtifactStatusDescription = document.createElement("text");
-    triggerArtifactStatusDescription.innerText = "Artifact Status:";
-    triggerArtifactStatusDescription.style.marginLeft = "80px";
-    triggersDescription2.append(triggerSpaceshipDescription, triggerArtifactDescription, triggerArtifactStatusDescription);
-    
-    const actionsDescription1 = document.createElement("div");
-    const actionTypeDescription = document.createElement("text");
-    actionTypeDescription.innerText = "Action Type:";
-    const actionEnergyDescription = document.createElement("text");
-    actionEnergyDescription.innerText = "Sent Energy:";
-    actionEnergyDescription.style.marginLeft = "160px";
-    const actionSilverDescription = document.createElement("text");
-    actionSilverDescription.innerText = "Sent Silver:";
-    actionSilverDescription.style.marginLeft = "75px";
-    actionsDescription1.append(actionTypeDescription, actionEnergyDescription, actionSilverDescription);
-    
-    const actionsDescription2 = document.createElement("div");
-    const actionSpaceshipDescription = document.createElement("text");
-    actionSpaceshipDescription.innerText = "Sent Spaceship ID:";
-    const actionArtifactDescription = document.createElement("text");
-    actionArtifactDescription.innerText = "Artifact ID:";
-    actionArtifactDescription.style.marginLeft = "35px";
-    const actionArtifactStatusDescription = document.createElement("text");
-    actionArtifactStatusDescription.innerText = "New Artifact Status:";
-    actionArtifactStatusDescription.style.marginLeft = "70px";
-    actionsDescription2.append(actionSpaceshipDescription, actionArtifactDescription, actionArtifactStatusDescription);
-    
-    const actionsDescription3 = document.createElement("div");
-    const actionUpgradeTypeDescription = document.createElement("text");
-    actionUpgradeTypeDescription.innerText = "Upgrade Type:";
-    const deletableAction = document.createElement("text");
-    deletableAction.innerText = "Delete After Executed?";
-    deletableAction.style.marginLeft = "315px";
-    actionsDescription3.append(actionUpgradeTypeDescription, deletableAction);
-    
-    const actionUpgradeTypeDeletableContainer = document.createElement("div");
-  actionUpgradeTypeDeletableContainer.append(actionUpgradeTypeInput, deleteAfterExecutedButton);
   
-        triggerEnergyInput.disabled = false;
-        triggerSilverInput.disabled = true;
-        triggerSpaceshipInput.disabled = true;
-        triggerArtifactInput.disabled = true;
-        triggerArtifactStatusInput.disabled = true;
-        
-        addPlanetTargetButton.disabled = false;
-        actionEnergyInput.disabled = false;
-        actionSilverInput.disabled = false;
-        actionSpaceshipInput.disabled = true;
-        actionArtifactInput.disabled = false;
-        actionArtifactStatusInput.disabled = true;
-        actionUpgradeTypeInput.disabled = true;
-        
-        //you should be seeing this if you either 'ctrl+f'ed "triggerTypeContainer.onchange" or "actionTypeContainer.onchange"
-  triggerTypeContainer.onchange = () => {
-    this.triggerType = triggerTypeContainer.value;
-      if (this.triggerType == 0) {
-        triggerEnergyInput.disabled = false;
-        triggerSilverInput.disabled = true;
-        triggerSpaceshipInput.disabled = true;
-        triggerArtifactInput.disabled = true;
-        triggerArtifactStatusInput.disabled = true;
+  const maxPlanetLevelInput = document.createElement("input");
+    maxPlanetLevelInput.style.textAlign = "right";
+    maxPlanetLevelInput.style.marginLeft = "74px";
+    maxPlanetLevelInput.style.background = 'rgb(8,8,8)';
+    maxPlanetLevelInput.style.width = "50px";
+    maxPlanetLevelInput.setAttribute("type", "number");
+    maxPlanetLevelInput.value = this.maxPlanetLevel;
+    maxPlanetLevelInput.addEventListener('focus', () => {maxPlanetLevelInput.select()});
+    maxPlanetLevelInput.onchange = () => {
+      this.maxPlanetLevel = maxPlanetLevelInput.value;
+      this.updateViablePlanetList();
+    }
+    
+    const minEnergyToSendInput = document.createElement("input");
+    minEnergyToSendInput.style.textAlign = "right";
+    minEnergyToSendInput.style.marginLeft = "50px";
+    minEnergyToSendInput.style.background = 'rgb(8,8,8)';
+    minEnergyToSendInput.style.width = "50px";
+    minEnergyToSendInput.setAttribute("type", "number");
+    minEnergyToSendInput.value = this.minEnergyToSend;
+    minEnergyToSendInput.addEventListener('focus', () => {minEnergyToSendInput.select()});
+    minEnergyToSendInput.onchange = () => {
+      this.minEnergyToSend = minEnergyToSendInput.value;
+      this.updateViablePlanetList();
+    }
+    
+    let setMinEnergyToTargetCapInput = document.createElement('input');
+    setMinEnergyToTargetCapInput.type = "checkbox";
+    setMinEnergyToTargetCapInput.style.textAlign = "right";
+    setMinEnergyToTargetCapInput.style.marginLeft = "43px";
+    setMinEnergyToTargetCapInput.checked = false;
+    setMinEnergyToTargetCapInput.onchange = () => {
+      if (setMinEnergyToTargetCapInput.checked == true) {
+      // probably should account for planet energyCap overflow but ehhhhhhhhhhhhhhhhhhhhhhhhhhh...
+        this.minEnergyToSend = df.getPlanetWithId(this.targetPlanet).energyCap * df.getPlanetWithId(this.targetPlanet).defense / 100;
+        minEnergyToSendInput.value = this.minEnergyToSend;
       }
-      else if (this.triggerType == 1) {
-        triggerEnergyInput.disabled = true;
-        triggerSilverInput.disabled = false;
-        triggerSpaceshipInput.disabled = true;
-        triggerArtifactInput.disabled = true;
-        triggerArtifactStatusInput.disabled = true;
-      }
-      else if (this.triggerType == 2) {
-        triggerEnergyInput.disabled = true;
-        triggerSilverInput.disabled = true;
-        triggerSpaceshipInput.disabled = false;
-        triggerArtifactInput.disabled = true;
-        triggerArtifactStatusInput.disabled = true;
-      }
-      else if (this.triggerType == 3) {
-        triggerEnergyInput.disabled = true;
-        triggerSilverInput.disabled = true;
-        triggerSpaceshipInput.disabled = true;
-        triggerArtifactInput.disabled = false;
-        triggerArtifactStatusInput.disabled = true;
-      }
-      else if (this.triggerType == 4) {
-        triggerEnergyInput.disabled = true;
-        triggerSilverInput.disabled = true;
-        triggerSpaceshipInput.disabled = true;
-        triggerArtifactInput.disabled = false;
-        triggerArtifactStatusInput.disabled = false;
+      this.updateViablePlanetList();
+    }
+    
+    const maxTimeToSendInput = document.createElement("input");
+    maxTimeToSendInput.style.textAlign = "right";
+    maxTimeToSendInput.style.marginLeft = "74px";
+    maxTimeToSendInput.style.background = 'rgb(8,8,8)';
+    maxTimeToSendInput.style.width = "50px";
+    maxTimeToSendInput.setAttribute("type", "number");
+    maxTimeToSendInput.value = this.maxTimeToSend;
+    maxTimeToSendInput.addEventListener('focus', () => {maxTimeToSendInput.select()})
+    maxTimeToSendInput.onchange = () => {
+      this.maxTimeToSend = maxTimeToSendInput.value;
+      this.updateViablePlanetList();
+    }
+    
+    let isLinesClickableButton = document.createElement('input');
+    isLinesClickableButton.type = "checkbox";
+    isLinesClickableButton.style.textAlign = "right";
+    isLinesClickableButton.style.marginLeft = "100px";
+    isLinesClickableButton.checked = false;
+    isLinesClickableButton.onchange = () => {
+      this.isLinesClickable = isLinesClickableButton.checked;
+      this.updateViablePlanetList();
+    }
+    
+    let percentEnergyToSendInput = document.createElement('input');
+    percentEnergyToSendInput.type = 'range';
+    percentEnergyToSendInput.min = '0';
+    percentEnergyToSendInput.max = '100';
+    percentEnergyToSendInput.step = '1';
+    percentEnergyToSendInput.value = this.percentEnergyToSend;
+    percentEnergyToSendInput.style.width = '100%';
+    percentEnergyToSendInput.style.height = '24px';
+    percentEnergyToSendInput.style.marginTop = '10px';
+
+    let percentEnergyInfo = document.createElement('span');
+    percentEnergyInfo.innerText = `Use ${this.percentEnergyToSend}% of planet energy`;
+    percentEnergyInfo.style.display = 'block';
+
+    //am gonna be honest, i don't actually know why i have this section below. i just copypasted it in just in case lol. probably could simplify things down a little bit if i thought for 5 seconds but i guess ill take the free debug tool for now
+    percentEnergyToSendInput.onchange = (evt) => {
+      try {
+        this.percentEnergyToSend = parseInt(evt.target.value, 10);
+        percentEnergyInfo.innerText = `Use ${this.percentEnergyToSend}% of planet energy`;
+        this.updateViablePlanetList();
+      } catch (e) {
+        console.error('could not parse percent energy', e);
       }
     }
     
-    //you should be seeing this if you either 'ctrl+f'ed "triggerTypeContainer.onchange" or "actionTypeContainer.onchange"
-    actionTypeContainer.onchange = () => {
-      this.actionType = actionTypeContainer.value;
-      if (this.actionType == 0) {
-        addPlanetTargetButton.disabled = false;
-        actionEnergyInput.disabled = false;
-        actionSilverInput.disabled = false;
-        actionSpaceshipInput.disabled = true;
-        actionArtifactInput.disabled = false;
-        actionArtifactStatusInput.disabled = true;
-        actionUpgradeTypeInput.disabled = true;
+    //timer runs through updateViablePlanetList() and setMinEnergyToTargetCapInput every UPDATE_INTERVAL seconds
+    this.timerId = setInterval(() => {
+          setTimeout(this.updateViablePlanetList(), 0);
+          if (setMinEnergyToTargetCapInput.checked == true) {
+        this.minEnergyToSend = df.getPlanetWithId(this.targetPlanet).energyCap * df.getPlanetWithId(this.targetPlanet).defense / 100;
+        minEnergyToSendInput.value = this.minEnergyToSend;
       }
-      else if (this.actionType == 1) {
-        addPlanetTargetButton.disabled = true;
-        actionEnergyInput.disabled = true;
-        actionSilverInput.disabled = true;
-        actionSpaceshipInput.disabled = true;
-        actionArtifactInput.disabled = true;
-        actionArtifactStatusInput.disabled = true;
-        actionUpgradeTypeInput.disabled = false;
+        }, 1000 * UPDATE_INTERVAL)
+    
+    //just the tutorial section. not very interesting
+    const tutorialSection = document.createElement("div");
+    const tutorialText1 = document.createElement("div");
+    tutorialText1.innerText = "Heyoooo Ner0nzz here! Here's a brief intro on how to use this pvp-oriented plugin as well as other info you might find helpful.";
+    tutorialText1.style.color = "#fcc203";
+    const tutorialText2 = document.createElement("div");
+    tutorialText2.innerText = "What this plugin essentially does is it very conveniently feeds you information on your capabilities in attacking a certain planet. In order to set a specified target, click the Add target button after selecting a planet. You'll notice a lot of potential attack lines as well as estimated arriving energy and time to send appearing on your UI. I'm pretty sure you know what the Clear lines button does.";
+    tutorialText2.style.fontSize = "10px";
+    tutorialText2.style.color = "#fcc203";
+    const tutorialText3 = document.createElement("div");
+    tutorialText3.innerText = "The cool thing about this plugin is that if you check the checkbox next to the Lines Clickable setting, you'll notice that you can now interact with said lines. Clicking a selected line again will send the displayed attack. Clicking anywhere else will deselect the line."
+    tutorialText3.style.fontSize = "12px";
+    tutorialText3.style.color = "#fcc203";
+    const tutorialText4 = document.createElement("div");
+    tutorialText4.innerText = "The rest is pretty simple. Min/Max Source Level filters out your planets with too high/low planet levels. Min Arriving Energy refers to the min arriving energy when attacking the target planet. The Set Min Energy checkbox takeover threshold refers to how much energy is needed to take over the target planet. Max Arrival Time is in seconds. The bottom slider refers to the percentage of a source planet's energy will be considered to be used in an attack.";
+    tutorialText4.style.fontSize = "9px";
+    tutorialText4.style.color = "#fcc203";
+    const tutorialText5 = document.createElement("div");
+    tutorialText5.innerText = "That's pretty much everything you need to know in order to use this. If you want to mess around with the way the attack lines look, open up the code and ctrl+f the first result of [const viewport] and there will be more info there. GLHF!";
+    tutorialText5.style.fontSize = "12px";
+    tutorialText5.style.color = "#fcc203";
+    const tutorialTextList = [tutorialText1, tutorialText2, tutorialText3, tutorialText4, tutorialText5];
+    let currentPage = 0;
+    const tutorialNextButton = document.createElement("button");
+    tutorialNextButton.innerText = "Next page";
+    tutorialNextButton.style.marginRight = "10px";
+    tutorialNextButton.addEventListener("click", () => {
+      if (currentPage < tutorialTextList.length - 1) {
+        tutorialSection.removeChild(tutorialTextList[currentPage]);
+        tutorialSection.appendChild(tutorialTextList[currentPage + 1]);
+        currentPage++;
       }
-      else if (this.actionType == 2) {
-        addPlanetTargetButton.disabled = false;
-        actionEnergyInput.disabled = true;
-        actionSilverInput.disabled = true;
-        actionSpaceshipInput.disabled = true;
-        actionArtifactInput.disabled = false;
-        actionArtifactStatusInput.disabled = true;
-        actionUpgradeTypeInput.disabled = true;
+    });
+    const tutorialBackButton = document.createElement("button");
+    tutorialBackButton.innerText = "Previous page";
+    tutorialBackButton.style.marginRight = "10px";
+    tutorialBackButton.addEventListener("click", () => {
+      if (currentPage != 0) {
+        tutorialSection.removeChild(tutorialTextList[currentPage]);
+        tutorialSection.appendChild(tutorialTextList[currentPage - 1]);
+        currentPage--;
       }
-      else if (this.actionType == 3) {
-        addPlanetTargetButton.disabled = false;
-        actionEnergyInput.disabled = true;
-        actionSilverInput.disabled = true;
-        actionSpaceshipInput.disabled = false;
-        actionArtifactInput.disabled = true;
-        actionArtifactStatusInput.disabled = true;
-        actionUpgradeTypeInput.disabled = true;
+    });
+    const deleteTutorialButton = document.createElement("button");
+    deleteTutorialButton.innerText = "Close tutorial";
+    deleteTutorialButton.style.marginRight = "10px";
+    deleteTutorialButton.addEventListener("click", () => {
+      container.removeChild(tutorialSection);
+    });
+    
+    tutorialSection.appendChild(tutorialBackButton);
+    tutorialSection.appendChild(tutorialNextButton);
+    tutorialSection.appendChild(deleteTutorialButton);
+    tutorialSection.appendChild(tutorialText1);
+    //end of tutorial section
+    
+    // all these containers eventually get appended to the main render(container) so process goes:
+    //input box => input container + info => render(container)
+    const minPlanetLevelContainer = document.createElement("div");
+    minPlanetLevelContainer.innerText = "Min Source Level:";
+    minPlanetLevelContainer.append(minPlanetLevelInput);
+    const maxPlanetLevelContainer = document.createElement("div");
+    maxPlanetLevelContainer.innerText = "Max Source Level:";
+    maxPlanetLevelContainer.append(maxPlanetLevelInput);
+    const minSendableEnergyContainer = document.createElement("div");
+    minSendableEnergyContainer.innerText = "Min Arriving Energy:";
+    minSendableEnergyContainer.append(minEnergyToSendInput);
+    const minSetSendableEnergyContainer = document.createElement("div");
+    minSetSendableEnergyContainer.innerText = "Set Min Energy to Takeover Threshold?";
+    minSetSendableEnergyContainer.style.fontSize = "10px";
+    minSetSendableEnergyContainer.append(setMinEnergyToTargetCapInput);
+    const maxArrivalTimeContainer = document.createElement("div");
+    maxArrivalTimeContainer.style.marginTop = "10px";
+    maxArrivalTimeContainer.innerText = "Max Arrival Time:";
+    maxArrivalTimeContainer.append(maxTimeToSendInput);
+    const linesClickableContainer = document.createElement("div");
+    linesClickableContainer.innerText = "Lines Clickable?";
+    linesClickableContainer.append(isLinesClickableButton);
+    
+    container.appendChild(tutorialSection);
+    container.appendChild(targetPlanetContainer);
+    container.appendChild(addTargetButton);
+    container.appendChild(clearTargetButton);
+    container.appendChild(minPlanetLevelContainer);
+    container.appendChild(maxPlanetLevelContainer);
+    container.appendChild(minSendableEnergyContainer);
+    container.appendChild(minSetSendableEnergyContainer);
+    container.appendChild(maxArrivalTimeContainer);
+    container.appendChild(linesClickableContainer);
+    container.appendChild(percentEnergyToSendInput);
+    container.appendChild(percentEnergyInfo);
+  }
+  
+  draw(ctx) {
+    ctx.strokeStyle = ATTACK_COLOR;
+    ctx.lineWidth = LINE_WIDTH;
+  
+    // draw(ctx) only displays stuff if a there is a target planet
+    if (this.targetPlanet) {
+      for (const viablePlanetInfo of this.viablePlanetList) {
+        let sourcePlanet = df.getPlanetWithId(viablePlanetInfo[0]);
+        let targetPlanet = df.getPlanetWithId(this.targetPlanet);
+        
+        //locations in the middle of the source planet and the target planet. the reason why y coordinates have the "+- 10" stuff is to prevent the info overlapping
+        let sourceTargetMidX = viewport.worldToCanvasX((sourcePlanet.location.coords.x + targetPlanet.location.coords.x) / 2);
+        let sourceTargetMidYEnergy = viewport.worldToCanvasY((sourcePlanet.location.coords.y + targetPlanet.location.coords.y) / 2) - 10;
+        let sourceTargetMidYTime = viewport.worldToCanvasY((sourcePlanet.location.coords.y + targetPlanet.location.coords.y) / 2) + 10;
+        
+        //begins drawing an unselected attack line
+        ctx.beginPath();
+        ctx.moveTo(viewport.worldToCanvasX(sourcePlanet.location.coords.x), viewport.worldToCanvasY(sourcePlanet.location.coords.y));
+        //console.log("Current source planet x coordinates: " + sourcePlanet.location.coords.x);
+        //console.log("Coordinates for moveTo function in draw(ctx): " + viewport.worldToCanvasX(sourcePlanet.location.coords.x) + ", " + viewport.worldToCanvasY(sourcePlanet.location.coords.y));
+        ctx.lineTo(viewport.worldToCanvasX(targetPlanet.location.coords.x), viewport.worldToCanvasY(targetPlanet.location.coords.y));
+        ctx.stroke();
+        //finishes drawing an unselected attack line
+        
+        ctx.font = `${FONT_SIZE}px Inconsolata`;
+        ctx.fillStyle = "white";
+        
+        // displays both the energy and time in the middle of the attack line. the reason why things like "toString().length" is also there is because without it, the text's leftmost side is positioned at the middle of the line. the "toString().length" part adjusts for that and makes sure the middle of the text is positioned at the middle.
+        ctx.fillText(Math.ceil(df.getEnergyArrivingForMove(viablePlanetInfo[0], this.targetPlanet, undefined, viablePlanetInfo[1])), sourceTargetMidX - Math.ceil(df.getEnergyArrivingForMove(viablePlanetInfo[0], this.targetPlanet, undefined, viablePlanetInfo[1])).toString().length * FONT_SIZE / 4, sourceTargetMidYEnergy);
+        ctx.fillText(Math.ceil(viablePlanetInfo[2]) + " sec", sourceTargetMidX - (Math.ceil(viablePlanetInfo[2]).toString().length + 4) * FONT_SIZE / 4, sourceTargetMidYTime);
       }
-      else if (this.actionType == 4) {
-        addPlanetTargetButton.disabled = false;
-        actionEnergyInput.disabled = true;
-        actionSilverInput.disabled = true;
-        actionSpaceshipInput.disabled = true;
-        actionArtifactInput.disabled = false;
-        actionArtifactStatusInput.disabled = false;
-        actionUpgradeTypeInput.disabled = true;
+      
+      // if a line has already been selected, then draw over it with a different color
+      if (this.isLineSelected && this.isLinesClickable && this.selectedLineInfo.length != 0) {
+        ctx.strokeStyle = DOUBLE_CLICK_COLOR;
+        ctx.lineWidth = LINE_WIDTH * 1.1;
+        ctx.beginPath();
+        ctx.moveTo(viewport.worldToCanvasX(df.getPlanetWithId(this.selectedLineInfo[0]).location.coords.x), viewport.worldToCanvasY(df.getPlanetWithId(this.selectedLineInfo[0]).location.coords.y));
+  ctx.lineTo(viewport.worldToCanvasX(df.getPlanetWithId(this.selectedLineInfo[1]).location.coords.x), viewport.worldToCanvasY(df.getPlanetWithId(this.selectedLineInfo[1]).location.coords.y));
+        ctx.stroke();
       }
     }
-
-      container.appendChild(triggerSourcePlanetContainer);
-      container.appendChild(actionSourcePlanetContainer);
-      container.appendChild(targetPlanetContainer);
-      container.appendChild(addTriggerPlanetSourceButton);
-      container.appendChild(addActionPlanetSourceButton);
-      container.appendChild(addPlanetTargetButton);
-      container.appendChild(addButton);
-      container.appendChild(triggersNewLine);
-      container.appendChild(triggersDescription1);
-      container.appendChild(triggerTypeContainer);
-      container.appendChild(triggerEnergyInput);
-      container.appendChild(triggerSilverInput);
-      container.appendChild(triggersDescription2);
-      container.appendChild(triggerSpaceshipInput);
-      container.appendChild(triggerArtifactInput);
-      container.appendChild(triggerArtifactStatusInput);
-      container.appendChild(actionsNewLine);
-      container.appendChild(actionsDescription1);
-      container.appendChild(actionTypeContainer);
-      container.appendChild(actionEnergyInput);
-      container.appendChild(actionSilverInput);
-      container.appendChild(actionsDescription2);
-      container.appendChild(actionSpaceshipInput);
-      container.appendChild(actionArtifactInput);
-      container.appendChild(actionArtifactStatusInput);
-      container.appendChild(actionsDescription3);
-      container.appendChild(actionUpgradeTypeDeletableContainer);
-      container.appendChild(globalButtonNewLine);
-      container.appendChild(globalButton);
-      container.appendChild(autoSecondsInfo);
-      container.appendChild(autoSecondsStepper);
-      container.appendChild(triggerListContainerLabel);
-      container.appendChild(triggerListContainer);
-    }
+  }
 
   /**
    * Called when plugin modal is closed.
@@ -817,84 +510,176 @@ this.triggerScanMasterList[0].splice(executableActions[currentAction], 1);
     if (this.timerId) {
       clearInterval(this.timerId);
     }
+    window.removeEventListener("click", this.lineClickedAndExecute);
+    window.removeEventListener("click", this.getMousePosition);
+    window.removeEventListener("keydown", (e) => {
+    switch (e.key) {
+      case ADD_TARGET_HOTKEY:
+          removeAllChildNodes(targetPlanetContainer);
+      const selectedTargetPlanet = ui.getSelectedPlanet();
+      if (selectedTargetPlanet) {
+          this.targetPlanet = selectedTargetPlanet.locationId;
+          if (setMinEnergyToTargetCapInput.checked == true) {
+            this.minEnergyToSend = df.getPlanetWithId(this.targetPlanet).energyCap * df.getPlanetWithId(this.targetPlanet).defense / 100;
+            minEnergyToSendInput.value = this.minEnergyToSend;
+      }
+          //basically every input the player makes inside this plugin will be calling updateViablePlanetList(). very important function.
+          this.updateViablePlanetList();
+      }
+      // make the planet either be "none" when nothing is selected, or the planet link.
+      targetPlanetContainer.append("Current target: ", selectedTargetPlanet ? planetLink(selectedTargetPlanet.locationId) : "none");
+        ;
+        break;
+    }});
   }
 }
 
-//trigger type detection
-function isEnergyTrigger(triggerType) {
-  return triggerType == 0;
+// somewhere inside DFGAIA there already exists all these functions i made from scratch right?
+
+// gets called repeatedly within updateViablePlanetList() in order to check if a planet fits inside the parameters set by the player
+function isSuitablePlanet (sourcePlanetId, targetPlanetId, minEnergySendable, maxTimeSpendable, percentEnergySendable, minLevelThreshold, maxLevelThreshold) {
+  let sourcePlanet = df.getPlanetWithId(sourcePlanetId);
+  let targetPlanet = df.getPlanetWithId(targetPlanetId);
+  if (sourcePlanet.planetLevel >= minLevelThreshold && sourcePlanet.planetLevel <= maxLevelThreshold
+  && df.getEnergyArrivingForMove(sourcePlanetId, targetPlanetId, undefined, sourcePlanet.energy * percentEnergySendable / 100) >= minEnergySendable
+  && df.getTimeForMove(sourcePlanetId, targetPlanetId)) {
+    return true;
+  }
+  return false;
 }
 
-function isSilverTrigger(triggerType) {
-  return triggerType == 1;
-}
-
-function isSpaceshipTrigger(triggerType) {
-  return triggerType == 2;
-}
-
-function isContainsArtifactTrigger(triggerType) {
-  return triggerType == 3;
-}
-
-function isArtifactStatusTrigger(triggerType) {
-  return triggerType == 4;
-}
-
-//action type detection
-function isMoveAction (actionType) {
-  return actionType == 0;
-}
-
-function isUpgradeAction (actionType) {
-  return actionType == 1;
-}
-
-function isAbandonAction (actionType) {
-  return actionType == 2;
-}
-
-function isSpaceshipAction (actionType) {
-  return actionType == 3;
-}
-
-function isArtifactStatusAction (actionType) {
-  return actionType == 4;
-}
-
-//checks for if a trigger condition is fulfilled
-function isEnergyConditionTrue (planet, energy) {
-  return df.getPlanetWithId(planet).energy >= energy;
-}
-
-function isSilverConditionTrue (planet, silver) {
-  return df.getPlanetWithId(planet).silver >= silver;
-}
-
-function isSpaceshipConditionTrue (planet, spaceship) {
-  return planet == df.getArtifactWithId(spaceship).onPlanetId;
-}
-
-function isContainsArtifactConditionTrue (planet, artifact) {
-  return planet == df.getArtifactWithId(artifact).onPlanetId;
-}
-
-function isArtifactStatusConditionTrue (planet, artifact, condition) {
-    let status = false;
-    //if the artifact is a photoid cannon
-    if (df.getArtifactWithId(artifact).artifactType == 7) {
-      if (Date.now() / 1000 - df.getArtifactWithId(artifact).lastActivated > df.contractConstants.PHOTOID_ACTIVATION_DELAY / 1000) {
-      status = true;
-      }
+// checks if a mouse click is between the x coordinates of the source and target planet
+function isBetweenXCoordinates(sourcePlanetId, targetPlanetId, mouseX) {
+  let sourcePlanetX = df.getPlanetWithId(sourcePlanetId).location.coords.x;
+  let targetPlanetX = df.getPlanetWithId(targetPlanetId).location.coords.x;
+  if (targetPlanetX - sourcePlanetX > 0) {
+    if (mouseX <= targetPlanetX + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) && mouseX >= sourcePlanetX - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE)) {
+    return true;
     }
-    else if (df.getArtifactWithId(artifact).lastActivated - df.getArtifactWithId(artifact).lastDeactivated > 0) {
-      status = true;
+  }
+  
+  else if (targetPlanetX - sourcePlanetX < 0) {
+    if (mouseX >= targetPlanetX - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) && mouseX <= sourcePlanetX + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE)) {
+    return true;
     }
+  }
+  
+  // this last part is for edge cases where both the target and source planet have the same x coordinates
+  else if (targetPlanetX - sourcePlanetX == 0) {
+    if (mouseX <= targetPlanetX + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) || mouseX >= targetPlanetX - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE)) {
+    return true;
+    }
+  }
+  
+  else {
+  return false;
+  }
+}
+
+// checks if a mouse click is between the y coordinates of the source and target planet
+function isBetweenYCoordinates(sourcePlanetId, targetPlanetId, mouseY) {
+  let sourcePlanetY = df.getPlanetWithId(sourcePlanetId).location.coords.y;
+  let targetPlanetY = df.getPlanetWithId(targetPlanetId).location.coords.y;
+  if (targetPlanetY - sourcePlanetY > 0) {
+    if (mouseY <= targetPlanetY +  (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) && mouseY >= sourcePlanetY - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE)) {
+    return true;
+    }
+  }
+  
+  else if (targetPlanetY - sourcePlanetY < 0) {
+    if (mouseY >= targetPlanetY -  (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) && mouseY <= sourcePlanetY + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE)) {
+    return true;
+    }
+  }
+  
+  // this last part is for edge cases where both the target and source planet have the same y coordinates
+  else if (targetPlanetY - sourcePlanetY == 0) {
+    if (mouseY <= targetPlanetY + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) || mouseY >= targetPlanetY - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE)) {
+    return true;
+    }
+  }
+  
+  else {
+  return false;
+  }
+}
+
+// gets the slope of the line between the source and target planet
+function getLineSlope (sourcePlanetId, targetPlanetId) {
+  return (df.getPlanetWithId(sourcePlanetId).location.coords.y - df.getPlanetWithId(targetPlanetId).location.coords.y) / (df.getPlanetWithId(sourcePlanetId).location.coords.x - df.getPlanetWithId(targetPlanetId).location.coords.x);
+}
+
+// gets the inverseSlope of the line between the source and target planet
+// lulw almost called "inverse slope" as "inverted slope"
+function getInverseLineSlope (sourcePlanetId, targetPlanetId) {
+  return (df.getPlanetWithId(sourcePlanetId).location.coords.x - df.getPlanetWithId(targetPlanetId).location.coords.x) / (df.getPlanetWithId(sourcePlanetId).location.coords.y - df.getPlanetWithId(targetPlanetId).location.coords.y);
+}
+
+// final check for whether or not a click was on top of an attack line
+function isOnLine (sourcePlanetId, targetPlanetId, mouseX, mouseY) {
+  let sourcePlanet = df.getPlanetWithId(sourcePlanetId);
+  let targetPlanet = df.getPlanetWithId(targetPlanetId);
+  let slope = getLineSlope(sourcePlanetId, targetPlanetId);
+  let inverseSlope = getInverseLineSlope(sourcePlanetId, targetPlanetId);
+  
+  //console.log("slope of current line: " + slope);
+  //console.log("inverse slope of current line: " + inverseSlope);
+  
+  //edge case if slope between source/target planets is undefined, note that the meaning bValue may not be accurate when applied to y = mx + b
+  if (slope == 1 / 0 || slope == (0 - 1) / 0) {
+    //console.log("slope is undefined");
+    let bValue = sourcePlanet.location.coords.x;
+    if (Math.ceil(mouseX) < bValue + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) / 2 && Math.ceil(mouseX) > bValue - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) / 2) {
+    return true;
+    }
+  }
+  
+  //edge case if slope between source/target planets is 0, this time the meaning of bValue ia accurate when applied to y = mx + b (i think)
+  else if (slope == 0) {
+    //console.log ("slope is 0");
+    let bValue = sourcePlanet.location.coords.y;
+    if (Math.ceil(mouseY) < bValue + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) / 2 && Math.ceil(mouseY) > bValue - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) / 2) {
+    return true;
+    }
+  }
+  
+  //this is the real deal down below. you might not want to touch this part
+  else {
+    let bValue = sourcePlanet.location.coords.y - sourcePlanet.location.coords.x * slope;
+    let inverseBValue = sourcePlanet.location.coords.x - sourcePlanet.location.coords.y * inverseSlope;
     
-  return planet == df.getArtifactWithId(artifact).onPlanetId && condition == status;
+    /*console.log("==============regular line case detected==============");
+    console.log("source planet coords: " + sourcePlanet.location.coords.x + ", " + sourcePlanet.location.coords.y);
+    console.log("cursor x pos: " + mouseX);
+    console.log("cursor y pos: " + mouseY);
+    console.log("b Value: " + bValue);
+    console.log("inverse b value: " + inverseBValue);
+    console.log("first test case results: " + (Math.ceil(mouseY) <= Math.ceil(mouseX * slope + bValue + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(slope) / Math.PI))));
+    console.log("is " + Math.ceil(mouseY) + " <= " + Math.ceil(mouseX * slope + bValue + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(slope) / Math.PI)) + "?");
+    console.log("second test case results: " + (Math.ceil(mouseY) >= Math.ceil(mouseX * slope + bValue - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(slope) / Math.PI))));
+    console.log("is " + Math.ceil(mouseY) + " >= " + Math.ceil(mouseX * slope + bValue - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(slope) / Math.PI)) + "?");
+    console.log("third test case results: " + (Math.ceil(mouseX) <= Math.ceil(mouseY * inverseSlope + inverseBValue + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(inverseSlope) / Math.PI))));
+    console.log("is " + Math.ceil(mouseX) + " <= " + Math.ceil(mouseY * inverseSlope + inverseBValue + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(inverseSlope) / Math.PI)) + "?");
+    console.log("fourth test case results: " + (Math.ceil(mouseX) >= Math.ceil(mouseY * inverseSlope + inverseBValue - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(inverseSlope) / Math.PI))));
+    console.log("is " + Math.ceil(mouseX) + " >= " + Math.ceil(mouseY * inverseSlope + inverseBValue - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(inverseSlope) / Math.PI)) + "?");*/
+
+      //the following is basically just checking if some position is on the line between the source planet and the target planet with some error bars involved. think y = (mx + b) +- LINE_WIDTH but with unit circle stuff to make selection more accurate. 
+      //the reason why Math.atan and Math.PI are in there is so the line selection hitbox actually follows the line itself no matter what the slope is as opposed to just having the error values be boringly static. so if a person decides they want the attack lines to take up half the screen, they'll have me to thank for accurate selection boxes.
+      // also if you think this formatting was bad, you should've seen my initial pseudocode lmao it looked like total trash on top of just being wrong
+      if (Math.ceil(mouseY) <= Math.ceil(mouseX * slope + bValue + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(slope) / Math.PI)) 
+      && Math.ceil(mouseY) >= Math.ceil(mouseX * slope + bValue - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(slope) / Math.PI))
+      && Math.ceil(mouseX) <= Math.ceil(mouseY * inverseSlope + inverseBValue + (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(inverseSlope) / Math.PI))
+      && Math.ceil(mouseX) >= Math.ceil(mouseY * inverseSlope + inverseBValue - (viewport.canvasToWorldDist(LINE_WIDTH * LINE_WIDTH_ERROR_FACTOR) + MIN_LINE_WIDTH_SIZE) * Math.abs(Math.atan(inverseSlope) / Math.PI))) {
+        return true;
+      }
+      else {
+      return false;
+      }
+  }
 }
+
 
 /**
- * And don't forget to export it!
+ * And don't forget to export it! :))))))))))))))))))))))))))))))))))))))))))))))))))))))))
  */
 export default Plugin;
