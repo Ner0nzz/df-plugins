@@ -377,11 +377,11 @@ class Plugin {
     tutorialText1.innerText = "Heyoooo Ner0nzz here! Here's a brief intro on how to use this pvp-oriented plugin as well as other info you might find helpful.";
     tutorialText1.style.color = "#fcc203";
     const tutorialText2 = document.createElement("div");
-    tutorialText2.innerText = "What this plugin essentially does is it very conveniently feeds you information on your capabilities in attacking a certain planet. In order to set a specified target, click the Add target button  or press [g] after selecting a planet. You'll notice a lot of potential attack lines as well as estimated arriving energy and time to send appearing on your UI. I'm pretty sure you know what the Clear lines button does.";
+    tutorialText2.innerText = "What this plugin essentially does is it very conveniently feeds you information on your capabilities in attacking a certain planet. In order to set a specified target, click the Add target button  or press [g] after selecting a planet. You'll notice a lot of potential attack lines as well as estimated arriving energy and time to send appearing on your UI. I'm pretty sure you know what the Clear lines button does. Pressing [g] does the same thing.";
     tutorialText2.style.fontSize = "10px";
     tutorialText2.style.color = "#fcc203";
     const tutorialText3 = document.createElement("div");
-    tutorialText3.innerText = "The cool thing about this plugin is that if you check the checkbox next to the Lines Clickable setting, you'll notice that you can now interact with said lines. Clicking a selected line again will send the displayed attack. Clicking anywhere else or pressing [g] will deselect the line."
+    tutorialText3.innerText = "The cool thing about this plugin is that if you check the checkbox next to the Lines Clickable setting, you'll notice that you can now interact with said lines. Clicking a selected line again will send the displayed attack. Clicking anywhere else will deselect the line."
     tutorialText3.style.fontSize = "12px";
     tutorialText3.style.color = "#fcc203";
     const tutorialText4 = document.createElement("div");
